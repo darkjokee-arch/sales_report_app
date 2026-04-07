@@ -198,6 +198,27 @@ def verify_pin(req: LoginRequest):
     else:
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
+@app.post("/api/bulk-import")
+def bulk_import(data: list, db: sqlite3.Connection = Depends(get_db)):
+    cursor = db.cursor()
+    count = 0
+    for row in data:
+        cursor.execute('''INSERT OR IGNORE INTO reports
+            (complex_name, property_type, households, address, manager_name, contact,
+             construction_types, assigned_company, recommended_company, status, notes,
+             kcc_requests, photo_url, kapt_code, long_term_reserve, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (row.get('complex_name',''), row.get('property_type',''), row.get('households',''),
+             row.get('address',''), row.get('manager_name',''), row.get('contact',''),
+             row.get('construction_types',''), row.get('assigned_company','미정'),
+             row.get('recommended_company',''), row.get('status','방문전'),
+             row.get('notes',''), row.get('kcc_requests',''), row.get('photo_url',''),
+             row.get('kapt_code',''), row.get('long_term_reserve',''),
+             row.get('created_at'), row.get('updated_at')))
+        count += 1
+    db.commit()
+    return {"success": True, "imported": count}
+
 @app.get("/api/reports")
 def get_reports(db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
