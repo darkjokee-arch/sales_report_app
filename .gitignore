@@ -1,0 +1,21 @@
+# DB 파일
+*.db
+*.sqlite
+
+# Python 캐시
+__pycache__/
+*.pyc
+
+# 대용량 바이너리
+ngrok.exe
+ngrok.zip
+
+# PDF, 엑셀 원본
+*.pdf
+*.xlsx
+
+# 로그, 임시 파일
+*.txt
+
+# 비밀 정보
+.env

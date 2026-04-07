@@ -1,0 +1,1404 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>통합 영업보고서 (4개사 공유)</title>
+    <!-- Tailwind CSS (CDN for rapid dev) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+
+        .modal-bg {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .slide-up {
+            animation: slideUp 0.3s ease-out forwards;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        #app-container {
+            max-width: 600px;
+            margin: 0 auto;
+            min-height: 100vh;
+            background-color: #f9fafb;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.05);
+            /* overflow-x: hidden; 추가하여 슬라이드 패널 넘침 방지 */
+            overflow-x: hidden;
+        }
+
+        /* 채팅 UI 스타일 */
+        #chat-panel {
+            transition: transform 0.3s ease-in-out;
+            transform: translateX(100%);
+        }
+
+        #chat-panel.open {
+            transform: translateX(0);
+        }
+
+        .chat-bubble-me {
+            border-bottom-right-radius: 0 !important;
+        }
+
+        .chat-bubble-other {
+            border-top-left-radius: 0 !important;
+        }
+
+        /* 맵 컨테이너 */
+        #map-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+    </style>
+    <!-- 카카오맵 API -->
+    <script type="text/javascript"
+        src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=c3754e9d29d98fa6e478ff38f58e9809&libraries=services"></script>
+</head>
+
+<body class="text-gray-800 antialiased">
+
+    <div id="app-container">
+
+        <!-- 로그인 (PIN) 화면 -->
+        <div id="login-screen" class="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center p-6">
+            <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg">
+                <i class="fa-solid fa-building-shield text-white text-3xl"></i>
+            </div>
+            <h1 class="text-2xl font-bold mb-2">통합 영업망</h1>
+            <p class="text-gray-500 mb-8 text-center text-sm">4개사 공용 영업보고서에<br>접속하기 위해 PIN을 입력하세요.</p>
+
+            <input type="password" id="pin-input" placeholder="PIN 번호 (예: 1234)"
+                class="w-full max-w-xs px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-center text-lg tracking-widest bg-gray-50 mb-4"
+                autocomplete="off" pattern="[0-9]*" inputmode="numeric">
+
+            <button id="login-btn"
+                class="w-full max-w-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg shadow transition duration-200">
+                접속하기
+            </button>
+            <p id="login-error" class="text-red-500 mt-3 text-sm hidden">PIN 번호가 일치하지 않습니다.</p>
+        </div>
+
+        <!-- 메인 앱 화면 -->
+        <div id="main-screen" class="hidden flex flex-col h-screen w-full">
+            <!-- Header -->
+            <header class="bg-white shadow-sm sticky top-0 z-30 px-4 py-4 flex justify-between items-center">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-building-shield text-blue-600 text-xl"></i>
+                    <h1 class="font-bold text-lg">통합 영업보고서</h1>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button id="btn-guide-open" class="text-sm font-semibold text-gray-500 hover:text-indigo-600 transition flex items-center gap-1">
+                        <i class="fa-solid fa-circle-question"></i> 사용법
+                    </button>
+                    <button id="btn-new-fab"
+                        class="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-md">
+                        <i class="fa-solid fa-plus"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 검색 및 필터 영역 (2단 탭 구조) -->
+            <div class="bg-white pb-2 shadow-sm relative z-20 border-b border-gray-100 flex flex-col">
+                <div class="px-4 py-2">
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-3.5 text-gray-400"></i>
+                        <input type="text" id="search-input" placeholder="단지명, 주소, 상태, 소장명 검색..."
+                            class="w-full bg-gray-50 border border-gray-200 text-sm rounded-xl pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 transition">
+                    </div>
+                </div>
+
+                <!-- 1단 탭: 뷰 모드 및 타사검토 -->
+                <div class="flex px-4 py-1 gap-2 text-sm whitespace-nowrap overflow-x-auto hide-scrollbar border-b border-gray-50 pb-2 mb-1"
+                    id="view-tabs">
+                    <span data-view="list"
+                        class="view-btn px-4 py-1.5 bg-blue-600 text-white rounded-full font-medium cursor-pointer shadow-sm transition">전체보기</span>
+                    <span data-view="map"
+                        class="view-btn px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full font-medium cursor-pointer transition opacity-90"><i
+                            class="fa-solid fa-map-location-dot mr-1"></i>로드맵</span>
+                    <span data-view="toss"
+                        class="view-btn relative px-4 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-full font-medium cursor-pointer transition opacity-90 ml-auto"><i
+                            class="fa-solid fa-handshake-angle mr-1"></i>타사검토
+                        <span id="badge-toss" class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white shadow-sm hidden">0</span>
+                    </span>
+                </div>
+
+                <!-- 2단 탭: 담당 회사 필터 -->
+                <div class="flex overflow-x-auto px-4 py-1 gap-3 text-sm whitespace-nowrap hide-scrollbar"
+                    id="filter-tabs">
+                    <span data-filter="세일산업개발"
+                        class="filter-btn relative px-4 py-1.5 bg-gray-100 hover:bg-blue-100 text-gray-600 hover:text-blue-700 rounded-full font-medium cursor-pointer transition opacity-90">세일산업개발
+                        <span id="badge-세일산업개발" class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white shadow-sm hidden">0</span>
+                    </span>
+                    <span data-filter="세진씨엔씨"
+                        class="filter-btn relative px-4 py-1.5 bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-700 rounded-full font-medium cursor-pointer transition opacity-90">세진씨엔씨
+                        <span id="badge-세진씨엔씨" class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white shadow-sm hidden">0</span>
+                    </span>
+                    <span data-filter="더세움"
+                        class="filter-btn relative px-4 py-1.5 bg-gray-100 hover:bg-teal-100 text-gray-600 hover:text-teal-700 rounded-full font-medium cursor-pointer transition opacity-90">더세움
+                        <span id="badge-더세움" class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white shadow-sm hidden">0</span>
+                    </span>
+                    <span data-filter="유니드건설"
+                        class="filter-btn relative px-4 py-1.5 bg-gray-100 hover:bg-indigo-100 text-gray-600 hover:text-indigo-700 rounded-full font-medium cursor-pointer transition opacity-90">유니드건설
+                        <span id="badge-유니드건설" class="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white shadow-sm hidden">0</span>
+                    </span>
+                </div>
+            </div>
+
+            <!-- 메인 컨텐츠 영역 (리스트 or 맵) -->
+            <div class="flex-1 relative overflow-hidden bg-gray-50">
+                <!-- 리스트 뷰 -->
+                <main class="absolute inset-0 overflow-y-auto p-4 pb-24 z-20 bg-gray-50" id="report-list">
+                    <!-- 리스트 항목들이 여기에 동적으로 삽입됩니다 -->
+                    <div class="text-center py-10 text-gray-400">데이터를 불러오는 중...</div>
+                </main>
+
+                <!-- 지도 뷰 -->
+                <div id="map-view" class="absolute inset-0 z-10 hidden">
+                    <div id="map-container"></div>
+                    <!-- 카카오키 미입력 안내 오버레이 -->
+                    <div id="map-key-overlay"
+                        class="absolute inset-0 z-20 bg-white/90 flex flex-col items-center justify-center p-6 text-center backdrop-blur-sm hidden">
+                        <i class="fa-solid fa-map-location-dot text-5xl text-blue-500 mb-4"></i>
+                        <h2 class="text-xl font-bold mb-2">지도 서비스 준비중</h2>
+                        <p class="text-gray-600 text-sm mb-4">카카오맵 API Key가 입력되지 않았습니다.<br>index.html 파일의 73번째 줄에
+                            발급받은<br>API Key를 입력하시면 지도가 활성화됩니다.</p>
+                        <a href="https://apis.map.kakao.com/" target="_blank"
+                            class="text-blue-600 bg-blue-50 px-4 py-2 rounded-lg font-medium hover:bg-blue-100 transition">API
+                            Key 발급 방법 알아보기</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 상세 보기 / 수정 모달 (토글) -->
+        <div id="detail-modal" class="fixed inset-0 modal-bg z-50 hidden flex-col justify-end">
+            <div
+                class="bg-white w-full max-w-[600px] mx-auto rounded-t-2xl h-[85vh] flex flex-col slide-up shadow-2xl relative">
+
+                <!-- 닫기 버튼 -->
+                <div class="absolute top-4 right-4 z-10 bg-white/80 rounded-full p-1 cursor-pointer" id="close-detail">
+                    <i
+                        class="fa-solid fa-xmark text-xl text-gray-500 w-8 h-8 flex items-center justify-center bg-gray-100 rounded-full"></i>
+                </div>
+
+
+
+                <!-- 상세 내용 (스크롤 영역) -->
+                <div class="p-5 overflow-y-auto flex-1 pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <span id="detail-type"
+                                class="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded">아파트</span>
+                            <h2 id="detail-title" class="text-2xl font-bold mt-1">단지명 로딩중</h2>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between mb-4">
+                        <p id="detail-address" class="text-gray-500 text-sm flex-1 mr-2"><i class="fa-solid fa-location-dot mr-1"></i> 주소 로딩중</p>
+                        <div id="detail-nav-buttons" class="flex gap-1 shrink-0"></div>
+                    </div>
+
+                    <!-- 담당 / 상태 변경 (핵심 기능) -->
+                    <div class="bg-gray-50 rounded-xl p-4 mb-5 border border-gray-100">
+                        <h3 class="text-xs text-gray-400 font-bold mb-3 uppercase tracking-wider">진행 현황 (수정 가능)</h3>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">담당 영업회사</label>
+                                <select id="detail-company"
+                                    class="w-full bg-white border border-gray-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2">
+                                    <option value="미정">미정</option>
+                                    <option value="세일산업개발">세일산업개발</option>
+                                    <option value="세진씨엔씨">세진씨엔씨</option>
+                                    <option value="더세움">더세움</option>
+                                    <option value="유니드건설">유니드건설</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">진행 상태</label>
+                                <select id="detail-status"
+                                    class="w-full bg-white border border-gray-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2">
+                                    <option value="방문전">💭 방문전</option>
+                                    <option value="영업중">🟢 영업중</option>
+                                    <option value="입찰예정">🟡 입찰예정</option>
+                                    <option value="계약완료">🔵 계약완료</option>
+                                    <option value="타사공사완료">⚫ 타사공사완료</option>
+                                    <option value="타사검토요청(토스)">🟣 타사검토요청(토스)</option>
+                                    <option value="보류">⚪ 보류</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button id="btn-save-status"
+                            class="mt-3 w-full bg-blue-50 text-blue-600 hover:bg-blue-100 text-sm font-medium py-2 rounded-lg transition">상태
+                            및 담당 수정 저장</button>
+                    </div>
+
+                    <!-- 기본 정보 테이블 -->
+                    <h3 class="text-base font-bold mb-2 flex items-center gap-2"><i
+                            class="fa-solid fa-building text-gray-400"></i> 단지 정보</h3>
+                    <div class="bg-white border border-gray-100 rounded-xl overflow-hidden mb-5 text-sm">
+                        <div class="grid grid-cols-3 border-b border-gray-100">
+                            <div class="bg-gray-50 p-2 text-gray-500 font-medium">세대수</div>
+                            <div class="col-span-2 p-2" id="detail-households">-</div>
+                        </div>
+                        <div class="grid grid-cols-3 border-b border-gray-100">
+                            <div class="bg-gray-50 p-2 text-gray-500 font-medium">관리소장</div>
+                            <div class="col-span-2 p-2 flex justify-between">
+                                <span id="detail-manager">-</span>
+                                <a href="#" id="detail-call" class="text-blue-500"><i class="fa-solid fa-phone"></i></a>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-3">
+                            <div class="bg-gray-50 p-2 text-gray-500 font-medium">공사명</div>
+                            <div class="col-span-2 p-2 font-medium" id="detail-construct-types">-</div>
+                        </div>
+                        <div class="grid grid-cols-3 border-t border-gray-100">
+                            <div class="bg-gray-50 p-2 text-indigo-500 font-bold tracking-tight text-xs flex items-center">장기수선충당금</div>
+                            <div class="col-span-2 p-2 font-bold text-indigo-600" id="detail-reserve">조회 전</div>
+                        </div>
+                    </div>
+
+                    <!-- 영업 진행 사항 (메모) -->
+                    <h3 class="text-base font-bold mb-2 flex items-center gap-2"><i
+                            class="fa-solid fa-clipboard-list text-gray-400"></i> 영업 진행 사항</h3>
+                    <textarea id="detail-notes" rows="4"
+                        class="block w-full text-sm text-gray-900 bg-gray-50 rounded-xl border border-gray-200 focus:ring-blue-500 focus:border-blue-500 p-3 mb-4"></textarea>
+
+                    <!-- KCC 협조사항 -->
+                    <h3 class="text-base font-bold mb-2 flex items-center gap-2"><i
+                            class="fa-solid fa-handshake-simple text-gray-400"></i> KCC 협조사항</h3>
+                    <textarea id="detail-kcc" rows="3"
+                        class="block w-full text-sm text-gray-900 bg-gray-50 rounded-xl border border-gray-200 focus:ring-blue-500 focus:border-blue-500 p-3 mb-4"></textarea>
+
+                    <button id="btn-save-notes"
+                        class="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-2.5 rounded-lg shadow-sm transition">메모
+                        및 협조사항 저장</button>
+
+                    <!-- Host-only Delete Button -->
+                    <button id="btn-delete-report"
+                        class="hidden w-full mt-3 bg-red-50 text-red-600 hover:bg-red-100 text-sm font-bold py-2.5 rounded-lg transition border border-red-200">
+                        <i class="fa-solid fa-trash-can mr-1"></i> 이 단지 강제 삭제
+                    </button>
+
+                    <!-- Host-only Edit Info Section -->
+                    <div id="host-edit-section" class="hidden mt-4 p-4 bg-red-50 rounded-xl border border-red-100">
+                        <h3 class="text-sm font-bold text-red-600 mb-3"><i class="fa-solid fa-wrench mr-1"></i>[관리자] 단지/주소 수정</h3>
+                        <div class="mb-3">
+                            <label class="block text-xs text-gray-700 font-bold mb-1">단지명</label>
+                            <input type="text" id="edit-complex-name" class="w-full text-sm p-2 border border-red-200 rounded-lg focus:ring-red-500 focus:border-red-500">
+                        </div>
+                        <div class="mb-3">
+                            <label class="block text-xs text-gray-700 font-bold mb-1">주소</label>
+                            <input type="text" id="edit-address" class="w-full text-sm p-2 border border-red-200 rounded-lg focus:ring-red-500 focus:border-red-500">
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-xs text-gray-700 font-bold mb-1">K-apt 단지코드 <span class="text-gray-400 font-normal">(API 연결 안 될시 수동입력)</span></label>
+                            <input type="text" id="edit-kapt-code" class="w-full text-sm p-2 border border-red-200 rounded-lg focus:ring-red-500 focus:border-red-500">
+                        </div>
+                        <button id="btn-save-host-info" class="w-full bg-red-600 text-white hover:bg-red-700 text-sm font-bold py-2.5 rounded-lg transition">관리자 수정 저장</button>
+                    </div>
+
+                    <input type="hidden" id="current-report-id">
+                </div>
+            </div>
+        </div>
+        <!-- 사용 가이드 모달 -->
+        <div id="guide-modal" class="fixed inset-0 modal-bg z-[60] hidden flex-col justify-center items-center px-4">
+            <div class="bg-white w-full max-w-[500px] rounded-2xl flex flex-col shadow-2xl max-h-[85vh] overflow-hidden animation-pop">
+                <div class="bg-indigo-600 px-5 py-4 flex justify-between items-center text-white">
+                    <h2 class="font-bold text-lg"><i class="fa-solid fa-book-open mr-2"></i>통합 영업망 사용 꿀팁!</h2>
+                    <button id="btn-guide-close" class="text-white hover:text-indigo-200 text-xl w-8 h-8 flex justify-center items-center"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="p-5 overflow-y-auto bg-gray-50 flex-1 space-y-4 text-sm text-gray-700">
+                    
+                    <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                        <h3 class="font-bold text-indigo-600 mb-2 flex items-center gap-2"><i class="fa-solid fa-shield-halved"></i> 1. 접속 보안 및 접속 방법</h3>
+                        <p>새로운 통합 PIN 번호는 <strong class="text-red-500 text-base">7890</strong> 입니다.<br>
+                        접속 주소를 스마트폰 웹 브라우저의 <strong>'홈 화면에 추가'</strong> 기능으로 바탕화면에 꺼내두시면 앱처럼 편하게 쓰실 수 있습니다!</p>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                        <h3 class="font-bold text-blue-600 mb-2 flex items-center gap-2"><i class="fa-solid fa-map-location-dot"></i> 2. 로드맵 (지도) 200% 활용하기</h3>
+                        <p>상단의 <span class="bg-gray-100 px-1 py-0.5 rounded font-bold">지도 로드맵</span> 탭을 누르면 모든 영업건이 지도에 핀으로 표시됩니다.</p>
+                        <ul class="list-disc pl-5 mt-2 space-y-1 text-gray-600">
+                            <li>핀을 누르면 건물 세부 정보가 뜹니다.</li>
+                            <li><strong>주소</strong> 텍스트를 누르면 카카오맵 길안내, 상세보기 안의 <strong>카카오/티맵</strong> 버튼을 누르면 설치된 내비게이션으로 바로 연결됩니다!</li>
+                        </ul>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                        <h3 class="font-bold text-purple-600 mb-2 flex items-center gap-2"><i class="fa-solid fa-bell-concierge"></i> 3. 타사검토 상태 즉각 공유!</h3>
+                        <p>영업건 상태를 <strong class="text-purple-600">타사검토요청(토스)</strong>로 변경하고 저장하시면, <strong>자동으로 전체 채팅방에 알림 봇(Bot)이 발생</strong>하여 4개사 모두가 즉시 확인할 수 있습니다.</p>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                        <h3 class="font-bold text-green-600 mb-2 flex items-center gap-2"><i class="fa-solid fa-comments"></i> 4. 실시간 커뮤니티 채팅</h3>
+                        <p>화면 우측 하단의 <span class="bg-indigo-600 text-white w-6 h-6 inline-flex justify-center items-center rounded-full text-xs mx-1"><i class="fa-solid fa-comments"></i></span> 버튼을 눌러보세요!</p>
+                        <p class="mt-1">4개사가 함께 실시간으로 업무 소통을 나눌 수 있습니다. 닉네임(예: <strong>세일(홍길동)</strong>)을 설정하면 바로 대화가 가능합니다!</p>
+                    </div>
+
+                </div>
+                <div class="px-5 py-3 border-t bg-white flex justify-end">
+                    <button id="btn-guide-understand" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition w-full text-lg shadow-sm">확인했습니다</button>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- 신규 등록 모달 (팝업) -->
+        <div id="new-modal" class="fixed inset-0 modal-bg z-50 hidden flex-col justify-end">
+            <div class="bg-white w-full max-w-[600px] mx-auto rounded-t-2xl h-[90vh] flex flex-col slide-up shadow-2xl">
+                <div
+                    class="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-2xl">
+                    <h2 class="text-lg font-bold">신규 영업단지 등록</h2>
+                    <button id="close-new" class="text-gray-400 hover:text-gray-600 text-xl w-8 h-8"><i
+                            class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <div class="p-5 overflow-y-auto flex-1 bg-white">
+                    <form id="new-report-form">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">영업단지명 *</label>
+                            <input type="text" id="new-name" required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="예: 늘푸른 아파트">
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">단지 주소 *</label>
+                            <input type="text" id="new-address" required
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="시/구/동 수준까지 기입 (자동 배정에 쓰임)">
+                            <p class="text-xs text-gray-500 mt-1"><i class="fa-solid fa-circle-info mr-1"></i>입력한 주소(구
+                                단위)를 바탕으로 4개사 중 담당이 자동 지정됩니다.</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">단지 구분</label>
+                                <select id="new-type"
+                                    class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:ring-blue-500">
+                                    <option value="아파트">아파트</option>
+                                    <option value="오피스텔">오피스텔</option>
+                                    <option value="상가/빌딩">상가/빌딩</option>
+                                    <option value="공장/기타">공장/기타</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">세대수/규모</label>
+                                <input type="text" id="new-households"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="예: 1,500세대">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">관리소장명</label>
+                                <input type="text" id="new-manager"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">소장 연락처</label>
+                                <input type="text" id="new-contact"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="010-0000-0000">
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">공사 대상 (다중선택 가능)</label>
+                            <div class="flex flex-wrap gap-2 text-sm">
+                                <label
+                                    class="flex items-center gap-1 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 cursor-pointer">
+                                    <input type="checkbox" value="옥상방수" class="const-type text-blue-600"> 옥상방수
+                                </label>
+                                <label
+                                    class="flex items-center gap-1 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 cursor-pointer">
+                                    <input type="checkbox" value="외부도장" class="const-type text-blue-600"> 외부도장
+                                </label>
+                                <label
+                                    class="flex items-center gap-1 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 cursor-pointer">
+                                    <input type="checkbox" value="내부도장" class="const-type text-blue-600"> 내부도장
+                                </label>
+                                <label
+                                    class="flex items-center gap-1 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 cursor-pointer">
+                                    <input type="checkbox" value="기타보수" class="const-type text-blue-600"> 기타보수
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-gray-100 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                    <button type="button" id="btn-submit-new"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition text-lg">
+                        저장 및 자동 할당
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 실시간 채팅 플로팅 버튼 -->
+        <button id="fab-chat"
+            class="hidden fixed bottom-6 right-6 lg:right-[calc(50%-280px)] w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-indigo-700 transition-colors z-40">
+            <i class="fa-solid fa-comments text-2xl"></i>
+            <span id="chat-badge"
+                class="absolute top-0 right-0 w-4 h-4 bg-red-500 rounded-full border-2 border-white hidden"></span>
+        </button>
+
+        <!-- 실시간 채팅창 오버레이 -->
+        <div id="chat-panel"
+            class="fixed top-0 right-0 w-full max-w-[400px] h-[100dvh] bg-white shadow-2xl z-50 flex flex-col border-l border-gray-200">
+            <!-- 채팅방 헤더 -->
+            <div class="bg-indigo-600 text-white px-4 py-4 flex justify-between items-center shadow-md z-10">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-comments text-xl"></i>
+                    <div>
+                        <h2 class="font-bold text-lg leading-tight">통합 커뮤니티</h2>
+                        <p class="text-indigo-200 text-xs">최근 7일 대화 보관</p>
+                    </div>
+                </div>
+                <button id="close-chat"
+                    class="text-white hover:text-indigo-200 w-8 h-8 flex justify-center items-center text-xl transition"><i
+                        class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- 처음 접속 시 닉네임 설정 영역 -->
+            <div id="chat-nickname-setup" class="flex-1 flex flex-col items-center justify-center p-6 bg-gray-50">
+                <i class="fa-solid fa-id-badge text-5xl text-gray-300 mb-4"></i>
+                <h3 class="text-lg font-bold mb-2">채팅방 입장</h3>
+                <p class="text-sm text-gray-500 mb-6 text-center">채팅에 사용할 식별 이름(회사명/직급)을 입력해주세요.</p>
+                <input type="text" id="chat-nickname-input"
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center mb-4"
+                    placeholder="예: 세일(홍길동)">
+                <button id="btn-save-nickname"
+                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow transition">입장하기</button>
+            </div>
+
+            <!-- 실제 채팅 영역 (닉네임 설정 후 보임) -->
+            <div id="chat-room-area" class="hidden flex-1 flex flex-col min-h-0 bg-slate-50 relative">
+                <!-- 메시지 리스트 -->
+                <div id="chat-messages" class="flex-1 overflow-y-auto p-4 flex flex-col gap-3 min-h-0">
+                    <!-- 메시지 아이템 예시 (JS로 추가됨) -->
+                </div>
+                <!-- 메시지 입력 영역 -->
+                <div class="bg-white border-t border-gray-200 p-3 pb-4 shrink-0" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+                    <form id="chat-form" class="flex gap-2">
+                        <input type="text" id="chat-input"
+                            class="flex-1 bg-gray-100 border-none rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                            placeholder="메시지를 입력하세요..." autocomplete="off">
+                        <button type="submit"
+                            class="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center hover:bg-indigo-700 transition shrink-0">
+                            <i class="fa-solid fa-paper-plane text-sm -ml-0.5"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        // 상태 및 회사 메타데이터
+        const STATUS_COLORS = {
+            "방문전": "bg-gray-200 text-gray-800",
+            "영업중": "bg-green-100 text-green-700",
+            "입찰예정": "bg-yellow-100 text-yellow-700",
+            "계약완료": "bg-blue-100 text-blue-700",
+            "타사공사완료": "bg-gray-200 text-gray-700",
+            "보류": "bg-gray-100 text-gray-500",
+            "타사검토요청(토스)": "bg-purple-100 text-purple-700 border border-purple-300 font-bold"
+        };
+
+        const COMPANY_BADGES = {
+            "세일산업개발": "bg-blue-500 text-white",     // 마포/서북
+            "세진씨엔씨": "bg-red-500 text-white",      // 서초/남부
+            "더세움": "bg-teal-500 text-white",    // 일산/북부 (더세움)
+            "유니드건설": "bg-indigo-500 text-white",   // 하남/동북
+            "미정": "bg-gray-400 text-white"
+        };
+
+        let allReports = [];
+        let searchQuery = '';
+        let currentFilter = 'all';
+        let currentView = 'list';
+        let kakaoMap = null;
+        let geocoder = null;
+        let mapMarkers = [];
+
+        // 뷰 탭 이벤트 (리스트 / 로드맵 / 타사검토)
+        document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const view = e.currentTarget.dataset.view;
+                
+                if (view === 'toss') {
+                    currentView = 'list';
+                    currentFilter = 'open';
+                    document.getElementById('report-list').classList.remove('hidden');
+                    document.getElementById('map-view').classList.add('hidden');
+                    updateViewTabUI('toss');
+                    updateFilterTabUI('all');
+                } else if (view === 'map') {
+                    currentView = 'map';
+                    document.getElementById('report-list').classList.add('hidden');
+                    document.getElementById('map-view').classList.remove('hidden');
+                    updateViewTabUI('map');
+                    
+                    if (!kakaoMap) {
+                        initKakaoMap();
+                    } else {
+                        setTimeout(() => {
+                            kakaoMap.relayout();
+                            applyFiltersAndSearch();
+                        }, 100);
+                    }
+                } else {
+                    currentView = 'list';
+                    currentFilter = 'all'; // <--- 리스트뷰 복귀 시 필터 리셋
+                    document.getElementById('report-list').classList.remove('hidden');
+                    document.getElementById('map-view').classList.add('hidden');
+                    updateViewTabUI('list');
+                    updateFilterTabUI('all');
+                }
+                applyFiltersAndSearch();
+            });
+        });
+
+        // 필터 탭 이벤트 (회사별)
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const filter = e.currentTarget.dataset.filter;
+                currentFilter = filter;
+                
+                if (currentView === 'list' && document.querySelector('.view-btn[data-view="toss"]').classList.contains('bg-purple-600')) {
+                    updateViewTabUI('list');
+                }
+                
+                updateFilterTabUI(filter);
+                applyFiltersAndSearch();
+            });
+        });
+
+        function updateViewTabUI(activeView) {
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                const view = btn.dataset.view;
+                btn.classList.remove('bg-blue-600', 'text-white', 'bg-purple-600');
+                if (view === 'toss') {
+                    btn.classList.add('bg-purple-100', 'text-purple-700');
+                } else {
+                    btn.classList.add('bg-gray-100', 'text-gray-600');
+                }
+                
+                if (view === activeView) {
+                    if (view === 'toss') {
+                        btn.classList.remove('bg-purple-100', 'text-purple-700');
+                        btn.classList.add('bg-purple-600', 'text-white');
+                    } else {
+                        btn.classList.remove('bg-gray-100', 'text-gray-600');
+                        btn.classList.add('bg-blue-600', 'text-white');
+                    }
+                }
+            });
+        }
+
+        function updateFilterTabUI(activeFilter) {
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('bg-gray-800', 'text-white');
+                btn.classList.add('bg-gray-100', 'text-gray-600');
+                
+                if (btn.dataset.filter === activeFilter && currentFilter !== 'open') {
+                    btn.classList.remove('bg-gray-100', 'text-gray-600');
+                    btn.classList.add('bg-gray-800', 'text-white');
+                }
+            });
+        }
+
+        // 검색 바 이벤트 리스너
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            searchQuery = e.target.value.toLowerCase();
+            applyFiltersAndSearch();
+        });
+
+        function applyFiltersAndSearch() {
+            let filtered = allReports;
+
+            // 1. 탭 필터 적용 (currentFilter는 회사명 or 'open' or 'all')
+            if (currentFilter !== 'all') {
+                if (currentFilter === 'open') {
+                    filtered = filtered.filter(r => r.status === '타사검토요청(토스)');
+                } else {
+                    filtered = filtered.filter(r => r.assigned_company === currentFilter);
+                }
+            }
+
+            // 2. 검색어 필터 적용
+            if (searchQuery.trim() !== '') {
+                filtered = filtered.filter(r =>
+                    (r.complex_name && r.complex_name.toLowerCase().includes(searchQuery)) ||
+                    (r.address && r.address.toLowerCase().includes(searchQuery)) ||
+                    (r.status && r.status.toLowerCase().includes(searchQuery)) ||
+                    (r.manager_name && r.manager_name.toLowerCase().includes(searchQuery))
+                );
+            }
+
+            // --- UI 렌더링 ---
+            renderList(filtered);
+
+            // 맵 뷰일 경우 마커 업데이트
+            if (currentView === 'map' && kakaoMap) {
+                updateMapMarkers(filtered);
+            }
+        }
+
+        // --- Kakao Map Logic ---
+        function initKakaoMap() {
+            if (typeof kakao === 'undefined' || !kakao.maps) {
+                const overlay = document.getElementById('map-key-overlay');
+                overlay.classList.remove('hidden');
+                overlay.innerHTML = `
+                <div class="px-6 py-8 bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg border border-red-100 flex flex-col items-center">
+                    <div class="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mb-4 text-3xl">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                    </div>
+                    <h3 class="font-bold text-gray-800 text-lg mb-2">지도 서비스 도메인 등록 필요</h3>
+                    <p class="text-sm text-gray-600 text-center leading-relaxed">카카오 API에 스크립트 도메인 등록이 완료되지 않았습니다.<br>Kakao Developers 제품 링크 관리 > 웹 도메인 등록 메뉴에서<br><strong class="text-red-500">http://localhost:8000</strong> 을 꼭 등록해 주세요.</p>
+                </div>`;
+                return;
+            }
+
+            const container = document.getElementById('map-container');
+            const options = {
+                center: new kakao.maps.LatLng(37.566826, 126.978656), // 기본 서울 시청
+                level: 8
+            };
+
+            kakaoMap = new kakao.maps.Map(container, options);
+            geocoder = new kakao.maps.services.Geocoder();
+
+            setTimeout(() => {
+                kakaoMap.relayout();
+            }, 100);
+
+            // 초기 마커 뿌리기
+            applyFiltersAndSearch();
+        }
+
+        function updateMapMarkers(reports) {
+            if (!kakaoMap || !geocoder) return;
+
+            // 기존 마커 제거
+            mapMarkers.forEach(item => {
+                item.marker.setMap(null);
+                if (item.infowindow) item.infowindow.close();
+            });
+            mapMarkers = [];
+
+            let bounds = new kakao.maps.LatLngBounds();
+            let validMarkers = 0;
+
+            reports.forEach((r, index) => {
+                if (!r.address) return;
+
+                // 주소로 좌표 검색 (실제 서비스에서는 서버에 캐시해두는 것이 좋음)
+                geocoder.addressSearch(r.address, function (result, status) {
+                    if (status === kakao.maps.services.Status.OK) {
+                        const coords = new kakao.maps.LatLng(result[0].y, result[0].x);
+
+                        let markerImage = null;
+
+                        // 타사검토요청이면 보라색, 나머지는 회사별 기본 핑
+                        let bgColor = "#4B5563"; // default gray
+                        if (r.status.includes('타사검토')) bgColor = "#9333EA"; // purple
+                        else if (r.assigned_company === '세일산업개발') bgColor = "#3B82F6"; // blue
+                        else if (r.assigned_company === '세진씨엔씨') bgColor = "#EF4444"; // red
+                        else if (r.assigned_company === '더세움') bgColor = "#14B8A6"; // teal
+                        else if (r.assigned_company === '유니드건설') bgColor = "#6366F1"; // indigo
+
+                        // SVG Data URI로 커스텀 마커 생성
+                        const svgMarker = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 384 512"><path fill="${bgColor}" d="M172.268 501.67C26.97 291.031 0 269.413 0 192 0 85.961 85.961 0 192 0s192 85.961 192 192c0 77.413-26.97 99.031-172.268 309.67-9.535 13.774-29.93 13.773-39.464 0zM192 272c44.183 0 80-35.817 80-80s-35.817-80-80-80-80 35.817-80 80 35.817 80 80 80z"/></svg>`;
+                        const markerImgSrc = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgMarker);
+                        const imageSize = new kakao.maps.Size(32, 40);
+                        const imageOption = { offset: new kakao.maps.Point(16, 40) };
+                        const markerImageObj = new kakao.maps.MarkerImage(markerImgSrc, imageSize, imageOption);
+
+                        const marker = new kakao.maps.Marker({
+                            map: kakaoMap,
+                            position: coords,
+                            image: markerImageObj,
+                            title: r.complex_name
+                        });
+
+                        const iwContent = `
+                            <div class="p-3 bg-white rounded-lg shadow-lg" style="width: 200px;">
+                                <div class="font-bold text-sm mb-1 truncate">${r.complex_name}</div>
+                                <div class="text-[11px] text-gray-500 mb-2 truncate">${r.address}</div>
+                                <div class="flex gap-1 mb-2">
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">${r.assigned_company === '미정' && r.recommended_company ? `미정 (추천: ${r.recommended_company})` : r.assigned_company}</span>
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">${r.status}</span>
+                                </div>
+                                <div class="flex gap-1 mt-1">
+                                    <button onclick='window.openDetailById(${r.id})' class="flex-[1.5] text-[11px] bg-blue-50 text-blue-600 py-1.5 rounded font-bold hover:bg-blue-100 transition">상세</button>
+                                    <button onclick="openNavigation('kakao', '${r.address}', '${r.complex_name}')" class="flex-1 text-[11px] bg-yellow-50 text-yellow-600 py-1.5 rounded font-bold hover:bg-yellow-100 transition">카카오</button>
+                                    <button onclick="openNavigation('tmap', '${r.address}', '${r.complex_name}')" class="flex-1 text-[11px] bg-teal-50 text-teal-600 py-1.5 rounded font-bold hover:bg-teal-100 transition">티맵</button>
+                                </div>
+                            </div>
+                        `;
+
+                        const infowindow = new kakao.maps.InfoWindow({
+                            content: iwContent,
+                            removable: true
+                        });
+
+                        kakao.maps.event.addListener(marker, 'click', function () {
+                            // 열려있는 다른 인포윈도우 닫기
+                            mapMarkers.forEach(m => { if (m.infowindow) m.infowindow.close(); });
+                            infowindow.open(kakaoMap, marker);
+                        });
+
+                        mapMarkers.push({ marker, infowindow });
+                        bounds.extend(coords);
+                        validMarkers++;
+
+                        // 마지막 마커 콜백 시 지도 범위 재설정 (조금 지연될 수 있음)
+                        if (index === reports.length - 1 || validMarkers === reports.length) {
+                            kakaoMap.setBounds(bounds);
+                        }
+                    }
+                });
+            });
+        }
+
+        // 인포윈도우에서 상세보기를 띄울 수 있도록 전역 함수로 등록
+        window.openDetailById = function (id) {
+            const report = allReports.find(r => r.id === id);
+            if (report) {
+                showDetail(report);
+            }
+        };
+
+        // --- Authentication ---
+        const loginBtn = document.getElementById('login-btn');
+        const pinInput = document.getElementById('pin-input');
+        const loginError = document.getElementById('login-error');
+
+        // Check session
+        if (sessionStorage.getItem('auth') === 'true') {
+            showMainApp();
+        }
+
+        loginBtn.addEventListener('click', () => { verifyPin(); });
+        pinInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') verifyPin(); });
+
+        async function verifyPin() {
+            const pin = pinInput.value;
+            try {
+                const res = await fetch('/api/verify-pin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    sessionStorage.setItem('auth', 'true');
+                    sessionStorage.setItem('is_host', data.is_host === true ? 'true' : 'false');
+                    showMainApp();
+                } else {
+                    loginError.classList.remove('hidden');
+                }
+            } catch (e) {
+                alert('서버 연결 실패');
+            }
+        }
+
+        function showMainApp() {
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('main-screen').classList.remove('hidden');
+            document.getElementById('fab-chat').classList.remove('hidden'); // 로그인 시 채팅 버튼 노출
+            loadReports();
+
+            // 첫 접속자에게 가이드 팝업 자동 노출
+            if (!localStorage.getItem('guide_seen')) {
+                setTimeout(() => {
+                    if (typeof openGuide === 'function') openGuide();
+                }, 400);
+            }
+        }
+
+        // --- Load and Render Data ---
+        async function loadReports() {
+            try {
+                const res = await fetch('/api/reports?t=' + new Date().getTime());
+                const data = await res.json();
+                allReports = data.reports;
+                updateTabBadges();
+                applyFiltersAndSearch();
+            } catch (e) {
+                console.error(e);
+                document.getElementById('report-list').innerHTML = '<div class="text-center py-10 text-red-500">데이터를 불러오지 못했습니다.</div>';
+            }
+        }
+
+        function updateTabBadges() {
+            // 타사 검토 카운트
+            const tossCount = allReports.filter(r => r.status && r.status.includes('타사검토요청')).length;
+            const tossBadge = document.getElementById('badge-toss');
+            if (tossBadge) {
+                tossBadge.textContent = tossCount;
+                if (tossCount > 0) tossBadge.classList.remove('hidden');
+                else tossBadge.classList.add('hidden');
+            }
+
+            // 회사별 카운트
+            const companies = ['세일산업개발', '세진씨엔씨', '더세움', '유니드건설'];
+            companies.forEach(company => {
+                const count = allReports.filter(r => r.assigned_company === company).length;
+                const badge = document.getElementById(`badge-${company}`);
+                if (badge) {
+                    badge.textContent = count;
+                    if (count > 0) badge.classList.remove('hidden');
+                    else badge.classList.add('hidden');
+                }
+            });
+        }
+
+        function renderList(reports) {
+            const listEl = document.getElementById('report-list');
+            listEl.innerHTML = '';
+
+            if (reports.length === 0) {
+                listEl.innerHTML = '<div class="text-center py-10 text-gray-400"><i class="fa-solid fa-folder-open text-4xl mb-3"></i><br>등록된 영업건이 없습니다.</div>';
+                return;
+            }
+
+            // 회사별 그룹화 로직 (여기서는 단순 리스트 렌더링 후 카드뷰)
+            // 현장 적용시 아코디언 형태로 렌더링 로직 추가 가능
+            reports.forEach(r => {
+                const statusColor = STATUS_COLORS[r.status] || "bg-gray-100 text-gray-700";
+                const compBadge = COMPANY_BADGES[r.assigned_company] || "bg-gray-400 text-white";
+                let compName = r.assigned_company; // 변경: DB와 맵핑이 동일하게 떨어짐
+                
+                let recHtml = "";
+                if (r.assigned_company === "미정" && r.recommended_company) {
+                    recHtml = `<span class="text-[10px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 font-bold shadow-sm ml-1 border border-orange-200">추천: ${r.recommended_company}</span>`;
+                }
+
+                // 타사검토요청이면 반짝임 효과나 강조 처리
+                const cardHighlight = r.status.includes("타사검토요청") ? "border-2 border-purple-400 shadow-purple-100" : "border border-gray-100";
+
+                const card = document.createElement('div');
+                card.className = `bg-white p-4 rounded-2xl shadow-sm mb-3 cursor-pointer hover:shadow-md transition active:scale-[0.98] ${cardHighlight}`;
+                card.onclick = () => showDetail(r);
+                card.innerHTML = `
+                <div class="flex justify-between items-start mb-2">
+                    <div class="flex items-center gap-1 flex-wrap">
+                        <span class="text-[10px] px-2 py-0.5 rounded-full ${compBadge} font-bold shadow-sm">${compName}</span>
+                        ${recHtml}
+                        <span class="text-xs px-2 py-0.5 rounded ${statusColor} font-bold ml-1">${r.status}</span>
+                    </div>
+                </div>
+                <h3 class="font-bold text-lg mb-1">${r.complex_name} <span class="text-sm font-normal text-gray-500 ml-1">(${r.property_type})</span></h3>
+                <p class="text-gray-500 text-sm truncate mb-2.5"><i class="fa-solid fa-location-dot text-gray-400 text-xs mr-1"></i>${r.address}</p>
+                <div class="flex justify-between items-center text-[11px] mt-2">
+                    <div class="flex gap-1 flex-wrap">
+                        ${r.construction_types ? r.construction_types.split(',').map(t => `<span class="bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">${t.trim()}</span>`).join('') : '<span class="text-gray-400">공사미상</span>'}
+                        ${r.long_term_reserve ? `<span class="bg-indigo-50 text-indigo-700 font-bold px-1.5 py-0.5 rounded border border-indigo-200 mt-1"><i class="fa-solid fa-coins mr-1"></i>${r.long_term_reserve}</span>` : ''}
+                    </div>
+                </div>
+            `;
+                listEl.appendChild(card);
+            });
+        }
+
+        // --- Modals (Detail & New) ---
+        const detailModal = document.getElementById('detail-modal');
+        const newModal = document.getElementById('new-modal');
+
+        document.getElementById('close-detail').onclick = () => detailModal.classList.add('hidden');
+        document.getElementById('close-new').onclick = () => newModal.classList.add('hidden');
+        document.getElementById('btn-new-fab').onclick = () => newModal.classList.remove('hidden');
+
+        function showDetail(report) {
+            document.getElementById('current-report-id').value = report.id;
+            document.getElementById('detail-title').innerText = report.complex_name;
+            document.getElementById('detail-type').innerText = report.property_type || "미정";
+            
+            // 주소 렌더링 및 내비게이션 버튼 2종
+            const addressEl = document.getElementById('detail-address');
+            addressEl.innerHTML = `<i class="fa-solid fa-location-dot mr-1"></i> ${report.address}`;
+            addressEl.className = "text-gray-600 text-sm font-medium mr-2 flex-1";
+
+            document.getElementById('detail-nav-buttons').innerHTML = `
+                <button onclick="openNavigation('kakao', '${report.address}', '${report.complex_name}')" class="bg-yellow-100 text-yellow-700 px-2 py-1.5 rounded text-[11px] font-bold shadow-sm hover:bg-yellow-200 transition">카카오</button>
+                <button onclick="openNavigation('tmap', '${report.address}', '${report.complex_name}')" class="bg-teal-100 text-teal-700 px-2 py-1.5 rounded text-[11px] font-bold shadow-sm hover:bg-teal-200 transition">티맵</button>
+            `;
+            document.getElementById('detail-households').innerText = report.households || "-";
+            document.getElementById('detail-manager').innerText = report.manager_name || "-";
+            document.getElementById('detail-construct-types').innerText = report.construction_types || "-";
+            document.getElementById('detail-reserve').innerText = report.long_term_reserve || "조회 전";
+
+            document.getElementById('detail-company').value = report.assigned_company;
+            document.getElementById('detail-status').value = report.status;
+            document.getElementById('detail-notes').value = report.notes || "";
+            document.getElementById('detail-notes').dataset.original = report.notes || "";
+            document.getElementById('detail-kcc').value = report.kcc_requests || "";
+            document.getElementById('detail-kcc').dataset.original = report.kcc_requests || "";
+
+            if (report.contact) {
+                document.getElementById('detail-call').href = `tel:${report.contact}`;
+                document.getElementById('detail-call').classList.remove('hidden');
+            } else {
+                document.getElementById('detail-call').classList.add('hidden');
+            }
+
+            if (sessionStorage.getItem('is_host') === 'true') {
+                document.getElementById('btn-delete-report').classList.remove('hidden');
+                const editSection = document.getElementById('host-edit-section');
+                if(editSection) {
+                    editSection.classList.remove('hidden');
+                    document.getElementById('edit-complex-name').value = report.complex_name;
+                    document.getElementById('edit-address').value = report.address;
+                    document.getElementById('edit-kapt-code').value = report.kapt_code || "";
+                }
+            } else {
+                document.getElementById('btn-delete-report').classList.add('hidden');
+                const editSection = document.getElementById('host-edit-section');
+                if(editSection) {
+                    editSection.classList.add('hidden');
+                }
+            }
+
+            detailModal.classList.remove('hidden');
+        }
+
+        // --- Delete Button Logic ---
+        document.getElementById('btn-delete-report').addEventListener('click', async () => {
+            const reportId = document.getElementById('current-report-id').value;
+            if (confirm("정말 이 영업단지를 영구적으로 삭제하시겠습니까? (이 작업은 되돌릴 수 없습니다!)")) {
+                try {
+                    const res = await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        alert("성공적으로 삭제되었습니다.");
+                        detailModal.classList.add('hidden');
+                        loadReports(); // 리스트 갱신 시 지도 마커도 함께 갱신됨
+                    } else {
+                        alert("삭제에 실패했습니다.");
+                    }
+                } catch (e) {
+                    alert("서버 연결 오류");
+                }
+            }
+        });
+
+        // --- Host Info Edit Logic ---
+        const btnSaveHostInfo = document.getElementById('btn-save-host-info');
+        if(btnSaveHostInfo) {
+            btnSaveHostInfo.addEventListener('click', async () => {
+                const id = document.getElementById('current-report-id').value;
+                const name = document.getElementById('edit-complex-name').value;
+                const addr = document.getElementById('edit-address').value;
+                const kCode = document.getElementById('edit-kapt-code').value;
+                
+                if(!name || !addr) {
+                    alert("단지명과 주소를 모두 입력해주세요.");
+                    return;
+                }
+                
+                try {
+                    const res = await fetch(`/api/reports/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ complex_name: name, address: addr, kapt_code: kCode })
+                    });
+                    
+                    if(res.ok) {
+                        alert("관리자 권한으로 단지명 및 주소가 수정되었습니다.");
+                        await loadReports();
+                        detailModal.classList.add('hidden');
+                    } else {
+                        alert("수정에 실패했습니다.");
+                    }
+                } catch (e) {
+                    alert("서버 연결 오류");
+                }
+            });
+        }
+
+        // --- Navigation Logic ---
+        function openNavigation(type, address, name) {
+            // 특수문자 안전 인코딩
+            const encodedName = encodeURIComponent(name);
+            
+            // geocoder가 아직 초기화되지 안았다면 즉시 초기화
+            if (!geocoder && typeof kakao !== 'undefined' && kakao.maps && kakao.maps.services) {
+                geocoder = new kakao.maps.services.Geocoder();
+            }
+
+            if (!geocoder) {
+                if (type === 'kakao') window.open(`https://map.kakao.com/link/search/${address}`);
+                else alert('지도 서비스가 로딩되지 않았습니다. 인터넷 연결을 확인해주세요.');
+                return;
+            }
+
+            geocoder.addressSearch(address, function(result, status) {
+                if (status === kakao.maps.services.Status.OK) {
+                    const lat = result[0].y;
+                    const lng = result[0].x;
+                    
+                    if (type === 'kakao') {
+                        // 카카오맵/내비 앱 연동 웹링크
+                        const url = `https://map.kakao.com/link/to/${encodedName},${lat},${lng}`;
+                        window.open(url, '_blank');
+                    } else if (type === 'tmap') {
+                        // 모바일 운영체제 확인
+                        const isAndroid = /Android/i.test(navigator.userAgent);
+                        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+                        if (isAndroid) {
+                            // 안드로이드: 특정 패키지명(com.skt.tmap 등)을 강제하면 기기에 따라 미설치로 오인해 스토어로 빠집니다.
+                            // 패키지 및 마켓 제약을 풀고 순수하게 tmap 스킴만 쏘도록 수정합니다.
+                            const intentUrl = `intent://route?goalname=${encodedName}&goalx=${lng}&goaly=${lat}#Intent;scheme=tmap;end`;
+                            window.location.href = intentUrl;
+                        } else if (isIOS) {
+                            // iOS: 기본 tmap 스킴 (앱 없을 시 작동 안하므로, 2초 뒤 앱스토어로 이동 시도)
+                            window.location.href = `tmap://route?goalname=${encodedName}&goalx=${lng}&goaly=${lat}`;
+                            setTimeout(() => {
+                                // 앱스토어 링크 (필요시 활성화)
+                                // window.location.href = 'https://apps.apple.com/kr/app/id431589174';
+                            }, 2000);
+                        } else {
+                            // PC 등 티맵 불가 기기
+                            alert('티맵(T-map) 안내는 모바일 기기(아이폰/안드로이드)에서만 지원됩니다.');
+                        }
+                    }
+                } else {
+                    if (type === 'kakao') window.open(`https://map.kakao.com/link/search/${address}`);
+                    else alert('좌표를 확인할 수 없어 티맵 연동이 불가능합니다.');
+                }
+            });
+        }
+
+        // --- Save Logic ---
+        document.getElementById('btn-save-status').onclick = async () => {
+            const id = document.getElementById('current-report-id').value;
+            const company = document.getElementById('detail-company').value;
+            const status = document.getElementById('detail-status').value;
+
+            await fetch(`/api/reports/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assigned_company: company, status: status })
+            });
+
+            // 타사 검토 요청 시 알림 (Mock UI)
+            if (status === '타사검토요청(토스)') {
+                alert('다른 회사들이 이 현장을 검토하도록 "오픈" 상태로 전환했습니다.');
+            } else {
+                // alert('반영되었습니다.'); 
+            }
+
+            await loadReports();
+            detailModal.classList.add('hidden');
+        };
+
+        function getTodayString() {
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            return `[${yyyy}-${mm}-${dd}]`;
+        }
+
+        function appendDateIfChanged(currentValue, originalValue) {
+            const val = currentValue.trim();
+            if (val === "") return ""; // 완전히 지웠을 땐 빈 칸 유지
+
+            const orig = originalValue.trim();
+            if (val === orig) return currentValue; // 변경 없음
+
+            const todayStr = getTodayString();
+            // 맨 앞에 오늘 날짜가 이미 있으면 그대로 리턴
+            if (val.startsWith(todayStr)) {
+                return currentValue;
+            }
+
+            // 기존 내용이 아예 없었다면 그냥 오늘 날짜 + 엔터 + 내용
+            if (orig === "") {
+                return `${todayStr}\n${val}`;
+            }
+
+            // 기존 내용이 있었지만 이번에 수정/추가된 경우
+            // 맨 첫날짜가 최신화 되도록 맨 위에 삽입
+            return `${todayStr}\n${val}`;
+        }
+
+        document.getElementById('btn-save-notes').onclick = async () => {
+            const id = document.getElementById('current-report-id').value;
+            const notesEl = document.getElementById('detail-notes');
+            const kccEl = document.getElementById('detail-kcc');
+
+            let notes = appendDateIfChanged(notesEl.value, notesEl.dataset.original);
+            let kcc_requests = appendDateIfChanged(kccEl.value, kccEl.dataset.original);
+
+            const btn = document.getElementById('btn-save-notes');
+            const originalText = btn.innerText;
+            btn.innerText = "저장 중...";
+
+            await fetch(`/api/reports/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notes: notes, kcc_requests: kcc_requests })
+            });
+
+            btn.innerText = "저장 완료!";
+            setTimeout(() => { btn.innerText = originalText; }, 1500);
+            await loadReports();
+
+            // 업데이트 후 원본 데이터셋 갱신
+            notesEl.dataset.original = notes;
+            kccEl.dataset.original = kcc_requests;
+            notesEl.value = notes;
+            kccEl.value = kcc_requests;
+        };
+
+        // --- Create Logic ---
+        document.getElementById('btn-submit-new').onclick = async () => {
+            const name = document.getElementById('new-name').value;
+            const address = document.getElementById('new-address').value;
+            if (!name || !address) { alert('단지명과 주소는 필수입니다.'); return; }
+
+            const checkboxes = document.querySelectorAll('.const-type:checked');
+            const types = Array.from(checkboxes).map(c => c.value).join(', ');
+
+            const data = {
+                complex_name: name,
+                address: address,
+                property_type: document.getElementById('new-type').value,
+                households: document.getElementById('new-households').value,
+                manager_name: document.getElementById('new-manager').value,
+                contact: document.getElementById('new-contact').value,
+                construction_types: types,
+                notes: "",
+                kcc_requests: "",
+                photo_url: ""
+            };
+
+            const res = await fetch('/api/reports', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            const result = await res.json();
+
+            alert(`저장되었습니다!\n주소 기반 분석 결과 [${result.assigned_company}]의 영업건으로 자동 할당되었습니다.`);
+
+            document.getElementById('new-report-form').reset();
+            newModal.classList.add('hidden');
+            loadReports();
+        };
+
+        // --- WebSockets Chat Logic ---
+        const fabChat = document.getElementById('fab-chat');
+        const chatPanel = document.getElementById('chat-panel');
+        const closeChat = document.getElementById('close-chat');
+
+        const nicknameSetupArea = document.getElementById('chat-nickname-setup');
+        const nicknameInput = document.getElementById('chat-nickname-input');
+        const btnSaveNickname = document.getElementById('btn-save-nickname');
+        const chatRoomArea = document.getElementById('chat-room-area');
+
+        const chatMessages = document.getElementById('chat-messages');
+        const chatForm = document.getElementById('chat-form');
+        const chatInput = document.getElementById('chat-input');
+        const chatBadge = document.getElementById('chat-badge');
+
+        let ws = null;
+        let chatNickname = localStorage.getItem('chat_nickname');
+        let unreadCount = 0;
+
+        function toggleChat() {
+            chatPanel.classList.toggle('open');
+            if (chatPanel.classList.contains('open')) {
+                // 열릴 때 뱃지 지우기
+                unreadCount = 0;
+                chatBadge.classList.add('hidden');
+
+                if (chatNickname) {
+                    showChatRoom();
+                } else {
+                    showNicknameSetup();
+                }
+                setTimeout(() => chatMessages.scrollTop = chatMessages.scrollHeight, 100);
+            }
+        }
+
+        fabChat.addEventListener('click', toggleChat);
+        closeChat.addEventListener('click', toggleChat);
+
+        function showNicknameSetup() {
+            nicknameSetupArea.classList.remove('hidden');
+            chatRoomArea.classList.add('hidden');
+        }
+
+        function showChatRoom() {
+            nicknameSetupArea.classList.add('hidden');
+            chatRoomArea.classList.remove('hidden');
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                connectWebSocket();
+                loadChatHistory();
+            }
+        }
+
+        btnSaveNickname.addEventListener('click', () => {
+            const name = nicknameInput.value.trim();
+            if (name) {
+                chatNickname = name;
+                localStorage.setItem('chat_nickname', name);
+                showChatRoom();
+            } else {
+                alert('닉네임을 입력해주세요.');
+            }
+        });
+
+        async function loadChatHistory() {
+            try {
+                const res = await fetch('/api/chat/history?t=' + new Date().getTime());
+                const data = await res.json();
+                chatMessages.innerHTML = '';
+                data.messages.forEach(msg => {
+                    renderChatMessage(msg.sender_name, msg.message, msg.created_at);
+                });
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } catch (e) {
+                console.error("Failed to load chat history", e);
+            }
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+                renderChatMessage(data.sender_name, data.message, data.created_at);
+
+                // 스크롤 맨 아래로
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                // 채팅창이 닫혀 있을 때 뱃지 표시
+                if (!chatPanel.classList.contains('open')) {
+                    unreadCount++;
+                    chatBadge.classList.remove('hidden');
+                }
+            };
+
+            ws.onclose = function () {
+                // 재연결 로직 (단순 구현)
+                setTimeout(() => {
+                    if (chatNickname && chatPanel.classList.contains('open')) {
+                        connectWebSocket();
+                    }
+                }, 3000);
+            };
+        }
+
+        function renderChatMessage(sender, text, timestamp) {
+            const isMe = sender === chatNickname;
+            const timeStr = timestamp.substring(11, 16); // "HH:MM" 만 추출
+
+            const div = document.createElement('div');
+            div.className = `flex flex-col max-w-[85%] ${isMe ? 'self-end items-end' : 'self-start items-start'}`;
+
+            const nameHtml = !isMe ? `<span class="text-xs text-gray-500 mb-1 ml-1">${sender}</span>` : '';
+
+            const bubbleClasses = isMe
+                ? 'bg-indigo-600 text-white chat-bubble-me'
+                : 'bg-white text-gray-800 border border-gray-200 chat-bubble-other';
+
+            div.innerHTML = `
+                ${nameHtml}
+                <div class="px-4 py-2 rounded-2xl shadow-sm text-sm ${bubbleClasses}">
+                    ${text}
+                </div>
+                <span class="text-[10px] text-gray-400 mt-1 mx-1">${timeStr}</span>
+            `;
+            chatMessages.appendChild(div);
+        }
+
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const text = chatInput.value.trim();
+            if (text && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    sender_name: chatNickname,
+                    message: text
+                }));
+                chatInput.value = '';
+            }
+        });
+
+        // --- 사용자 가이드 (최초 1회 팝업 및 매뉴얼 모달) ---
+        const guideModal = document.getElementById('guide-modal');
+        
+        function openGuide() {
+            guideModal.classList.remove('hidden');
+            guideModal.classList.add('flex');
+        }
+
+        function closeGuide() {
+            guideModal.classList.add('hidden');
+            guideModal.classList.remove('flex');
+            localStorage.setItem('guide_seen', 'true');
+        }
+
+        document.getElementById('btn-guide-open').addEventListener('click', openGuide);
+        document.getElementById('btn-guide-close').addEventListener('click', closeGuide);
+        document.getElementById('btn-guide-understand').addEventListener('click', closeGuide);
+
+        // 첫 방문 시 자동 노출 로직 (로그인 성공 후 main-screen 렌더링 시점에 판단)
+        // 주의: 이 스크립트 블록이 실행될 땐 아직 로그인 전 화면일 수 있으므로, 로그인된 이후에 팝업을 띄우는 것이 안전합니다.
+        // 현재 구조상 페이지 로드 즉시 또는 로그인 직후 띄우도록 합니다.
+    </script>
+</body>
+
+</html>
