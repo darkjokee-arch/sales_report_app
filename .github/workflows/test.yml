@@ -1,0 +1,36 @@
+name: 코드 검증
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: |
+          pip install fastapi uvicorn pydantic
+
+      - name: 문법 검사
+        run: |
+          python -m py_compile main.py
+          python -m py_compile run.py
+          python -m py_compile kapt_sync.py
+          python -m py_compile kapt_reserve_sync.py
+          python -m py_compile import_excel.py
+          python -m py_compile migrate_db.py
+          echo "문법 검사 통과"
+
+      - name: 핵심 모듈 import 검사
+        run: |
+          python -c "from main import app; print('main OK')"
+          echo "import 검사 통과"
