@@ -1,9 +1,12 @@
 import uvicorn
+import os
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from main import app, init_db
 import sqlite3
+
+os.makedirs("static", exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
