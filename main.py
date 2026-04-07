@@ -199,7 +199,7 @@ def verify_pin(req: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
 @app.post("/api/bulk-import")
-def bulk_import(data: list, db: sqlite3.Connection = Depends(get_db)):
+def bulk_import(data: List[dict], db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
     count = 0
     for row in data:
