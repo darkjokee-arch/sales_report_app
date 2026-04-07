@@ -16,6 +16,7 @@ ngrok.zip
 
 # 로그, 임시 파일
 *.txt
+!requirements.txt
 
 # 비밀 정보
 .env
