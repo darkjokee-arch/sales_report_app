@@ -99,8 +99,11 @@ def get_db():
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     try:
-        # 7일이 지난 채팅 메시지는 자동 삭제 (로딩할 때마다 정리)
         cursor = conn.cursor()
+        # 테이블이 없을 수 있으므로 안전하게 처리
+        cursor.execute("CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_name TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, complex_name TEXT NOT NULL, property_type TEXT, households TEXT, address TEXT NOT NULL, manager_name TEXT, contact TEXT, construction_types TEXT, assigned_company TEXT DEFAULT '미정', recommended_company TEXT DEFAULT '', status TEXT DEFAULT '방문전', notes TEXT, kcc_requests TEXT DEFAULT '', photo_url TEXT, kapt_code TEXT DEFAULT '', long_term_reserve TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        conn.commit()
         cursor.execute("DELETE FROM chat_messages WHERE created_at <= datetime('now', '-7 days')")
         conn.commit()
         yield conn
