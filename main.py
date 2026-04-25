@@ -458,8 +458,8 @@ import threading
 import difflib
 
 KAPT_API_KEY = "dcc614fd303886a1fcaf68d8ef0eb5720a321b324e84973ee83561c34f000bf3"
-KAPT_URL_BASIS = "http://apis.data.go.kr/1613000/AptListService3/getHsmpNmSearchV2"
-KAPT_URL_RESERVE = "http://apis.data.go.kr/1613000/AptRepairsCostServiceV2/getHsmpReserveBalanceInfoV2"
+KAPT_URL_BASIS = "https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3"
+KAPT_URL_RESERVE = "https://apis.data.go.kr/1613000/AptRepairsCostServiceV2/getHsmpReserveBalanceInfoV2"
 
 KAPT_BJDCE = {
     "종로구":"11110","중구":"11140","용산구":"11170","성동구":"11200","광진구":"11215",
@@ -507,7 +507,7 @@ def _resolve_kapt_code(address: str, complex_name: str) -> str:
             break
     try:
         data = _kapt_http_get(KAPT_URL_BASIS, {
-            "serviceKey": KAPT_API_KEY, "bjdceCd": bjdce,
+            "serviceKey": KAPT_API_KEY, "sigunguCode": bjdce,
             "numOfRows": "1000", "pageNo": "1", "_type": "json"
         }, timeout=10)
         body = data.get("response", {}).get("body", {})
