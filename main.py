@@ -102,6 +102,7 @@ def init_db():
                 photo_url TEXT,
                 kapt_code TEXT DEFAULT '',
                 long_term_reserve TEXT DEFAULT '',
+                target_year INTEGER DEFAULT 2026,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -114,6 +115,9 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # 마이그레이션: target_year 컬럼 idempotent 추가 + 기존 NULL → 2026
+        cursor.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS target_year INTEGER DEFAULT 2026")
+        cursor.execute("UPDATE reports SET target_year = 2026 WHERE target_year IS NULL")
         conn.commit()
         conn.close()
     else:
@@ -137,6 +141,7 @@ def init_db():
                 photo_url TEXT,
                 kapt_code TEXT DEFAULT '',
                 long_term_reserve TEXT DEFAULT '',
+                target_year INTEGER DEFAULT 2026,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -149,6 +154,12 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # 마이그레이션: SQLite는 IF NOT EXISTS 미지원 → PRAGMA로 컬럼 존재 검사
+        cursor.execute("PRAGMA table_info(reports)")
+        existing_cols = [r[1] for r in cursor.fetchall()]
+        if 'target_year' not in existing_cols:
+            cursor.execute("ALTER TABLE reports ADD COLUMN target_year INTEGER DEFAULT 2026")
+        cursor.execute("UPDATE reports SET target_year = 2026 WHERE target_year IS NULL")
         conn.commit()
         conn.close()
 
@@ -170,7 +181,7 @@ def get_db():
         try:
             cursor = conn.cursor()
             cursor.execute("CREATE TABLE IF NOT EXISTS chat_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_name TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, complex_name TEXT NOT NULL, property_type TEXT, households TEXT, address TEXT NOT NULL, manager_name TEXT, contact TEXT, construction_types TEXT, assigned_company TEXT DEFAULT '미정', recommended_company TEXT DEFAULT '', status TEXT DEFAULT '방문전', notes TEXT, kcc_requests TEXT DEFAULT '', photo_url TEXT, kapt_code TEXT DEFAULT '', long_term_reserve TEXT DEFAULT '', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, complex_name TEXT NOT NULL, property_type TEXT, households TEXT, address TEXT NOT NULL, manager_name TEXT, contact TEXT, construction_types TEXT, assigned_company TEXT DEFAULT '미정', recommended_company TEXT DEFAULT '', status TEXT DEFAULT '방문전', notes TEXT, kcc_requests TEXT DEFAULT '', photo_url TEXT, kapt_code TEXT DEFAULT '', long_term_reserve TEXT DEFAULT '', target_year INTEGER DEFAULT 2026, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
             conn.commit()
             cursor.execute("DELETE FROM chat_messages WHERE created_at <= datetime('now', '-7 days')")
             conn.commit()
@@ -244,6 +255,7 @@ class ReportCreate(BaseModel):
     notes: Optional[str] = ""
     kcc_requests: Optional[str] = ""
     photo_url: Optional[str] = ""
+    target_year: Optional[int] = 2026
 
 class ReportUpdate(BaseModel):
     status: Optional[str] = None
@@ -253,6 +265,7 @@ class ReportUpdate(BaseModel):
     complex_name: Optional[str] = None
     address: Optional[str] = None
     kapt_code: Optional[str] = None
+    target_year: Optional[int] = None
 
 # --- Routes ---
 @app.post("/api/verify-pin")
@@ -278,12 +291,13 @@ def create_report(report: ReportCreate, db=Depends(get_db)):
     cursor = db.cursor()
     cursor.execute(ph('''
         INSERT INTO reports
-        (complex_name, property_type, households, address, manager_name, contact, construction_types, assigned_company, recommended_company, notes, kcc_requests, photo_url)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (complex_name, property_type, households, address, manager_name, contact, construction_types, assigned_company, recommended_company, notes, kcc_requests, photo_url, target_year)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     '''), (
         report.complex_name, report.property_type, report.households, report.address,
         report.manager_name, report.contact, report.construction_types,
-        "미정", recommended, report.notes, report.kcc_requests, report.photo_url
+        "미정", recommended, report.notes, report.kcc_requests, report.photo_url,
+        report.target_year or 2026
     ))
     db.commit()
 
@@ -331,6 +345,9 @@ async def update_report(report_id: int, report: ReportUpdate, db=Depends(get_db)
     if report.kapt_code is not None:
         updates.append("kapt_code = " + ("%" + "s" if DB_TYPE == "postgres" else "?"))
         params.append(report.kapt_code)
+    if report.target_year is not None:
+        updates.append("target_year = " + ("%" + "s" if DB_TYPE == "postgres" else "?"))
+        params.append(report.target_year)
 
     if not updates:
         return {"success": True, "message": "No changes requested"}
@@ -430,6 +447,7 @@ class BulkReport(BaseModel):
     photo_url: Optional[str] = ""
     kapt_code: Optional[str] = ""
     long_term_reserve: Optional[str] = ""
+    target_year: Optional[int] = 2026
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -442,13 +460,13 @@ def bulk_import(reports: List[BulkReport], db=Depends(get_db)):
             INSERT INTO reports
             (complex_name, property_type, households, address, manager_name, contact,
              construction_types, assigned_company, recommended_company, status, notes,
-             kcc_requests, photo_url, kapt_code, long_term_reserve, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             kcc_requests, photo_url, kapt_code, long_term_reserve, target_year, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''), (
             r.complex_name, r.property_type, r.households, r.address,
             r.manager_name, r.contact, r.construction_types, r.assigned_company,
             r.recommended_company, r.status, r.notes, r.kcc_requests,
-            r.photo_url, r.kapt_code, r.long_term_reserve,
+            r.photo_url, r.kapt_code, r.long_term_reserve, r.target_year or 2026,
             r.created_at or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             r.updated_at or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ))

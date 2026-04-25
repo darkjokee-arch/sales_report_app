@@ -161,6 +161,23 @@
                     </span>
                 </div>
 
+                <!-- 연도 필터 탭 -->
+                <div class="flex overflow-x-auto px-4 py-1 gap-2 text-sm whitespace-nowrap hide-scrollbar border-b border-gray-100"
+                    id="year-tabs">
+                    <span data-year="all"
+                        class="year-btn relative px-3 py-1 bg-gray-800 text-white rounded-full font-medium cursor-pointer transition text-xs">전체
+                        <span id="year-badge-all" class="ml-1 text-[10px] opacity-80">0</span>
+                    </span>
+                    <span data-year="2026"
+                        class="year-btn relative px-3 py-1 bg-gray-100 hover:bg-amber-100 text-gray-600 hover:text-amber-700 rounded-full font-medium cursor-pointer transition text-xs">2026년
+                        <span id="year-badge-2026" class="ml-1 text-[10px] opacity-80">0</span>
+                    </span>
+                    <span data-year="2027"
+                        class="year-btn relative px-3 py-1 bg-gray-100 hover:bg-emerald-100 text-gray-600 hover:text-emerald-700 rounded-full font-medium cursor-pointer transition text-xs">2027년
+                        <span id="year-badge-2027" class="ml-1 text-[10px] opacity-80">0</span>
+                    </span>
+                </div>
+
                 <!-- 2단 탭: 담당 회사 필터 -->
                 <div class="flex overflow-x-auto px-4 py-1 gap-3 text-sm whitespace-nowrap hide-scrollbar"
                     id="filter-tabs">
@@ -560,6 +577,7 @@
         let allReports = [];
         let searchQuery = '';
         let currentFilter = 'all';
+        let currentYearFilter = 'all';
         let currentView = 'list';
         let kakaoMap = null;
         let geocoder = null;
@@ -608,15 +626,47 @@
             btn.addEventListener('click', (e) => {
                 const filter = e.currentTarget.dataset.filter;
                 currentFilter = filter;
-                
+
                 if (currentView === 'list' && document.querySelector('.view-btn[data-view="toss"]').classList.contains('bg-purple-600')) {
                     updateViewTabUI('list');
                 }
-                
+
                 updateFilterTabUI(filter);
                 applyFiltersAndSearch();
             });
         });
+
+        // 연도 탭 이벤트
+        document.querySelectorAll('.year-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                currentYearFilter = e.currentTarget.dataset.year;
+                updateYearTabUI(currentYearFilter);
+                applyFiltersAndSearch();
+            });
+        });
+
+        function updateYearTabUI(activeYear) {
+            document.querySelectorAll('.year-btn').forEach(btn => {
+                btn.classList.remove('bg-gray-800', 'text-white');
+                btn.classList.add('bg-gray-100', 'text-gray-600');
+                if (btn.dataset.year === activeYear) {
+                    btn.classList.remove('bg-gray-100', 'text-gray-600');
+                    btn.classList.add('bg-gray-800', 'text-white');
+                }
+            });
+        }
+
+        function updateYearBadges() {
+            const total = allReports.length;
+            const c2026 = allReports.filter(r => (r.target_year || 2026) === 2026).length;
+            const c2027 = allReports.filter(r => (r.target_year || 2026) === 2027).length;
+            const elAll = document.getElementById('year-badge-all');
+            const el2026 = document.getElementById('year-badge-2026');
+            const el2027 = document.getElementById('year-badge-2027');
+            if (elAll) elAll.innerText = total;
+            if (el2026) el2026.innerText = c2026;
+            if (el2027) el2027.innerText = c2027;
+        }
 
         function updateViewTabUI(activeView) {
             document.querySelectorAll('.view-btn').forEach(btn => {
@@ -660,6 +710,12 @@
 
         function applyFiltersAndSearch() {
             let filtered = allReports;
+
+            // 0. 연도 필터 적용 (currentYearFilter는 'all' / '2026' / '2027')
+            if (currentYearFilter !== 'all') {
+                const yearNum = parseInt(currentYearFilter, 10);
+                filtered = filtered.filter(r => (r.target_year || 2026) === yearNum);
+            }
 
             // 1. 탭 필터 적용 (currentFilter는 회사명 or 'open' or 'all')
             if (currentFilter !== 'all') {
@@ -870,6 +926,7 @@
                 const data = await res.json();
                 allReports = data.reports;
                 updateTabBadges();
+                updateYearBadges();
                 applyFiltersAndSearch();
             } catch (e) {
                 console.error(e);
@@ -927,9 +984,15 @@
                 const card = document.createElement('div');
                 card.className = `bg-white p-4 rounded-2xl shadow-sm mb-3 cursor-pointer hover:shadow-md transition active:scale-[0.98] ${cardHighlight}`;
                 card.onclick = () => showDetail(r);
+                const yearVal = r.target_year || 2026;
+                const yearBadge = yearVal === 2027
+                    ? `<span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-bold shadow-sm border border-emerald-200">${yearVal}년</span>`
+                    : `<span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-bold shadow-sm border border-amber-200">${yearVal}년</span>`;
+
                 card.innerHTML = `
                 <div class="flex justify-between items-start mb-2">
                     <div class="flex items-center gap-1 flex-wrap">
+                        ${yearBadge}
                         <span class="text-[10px] px-2 py-0.5 rounded-full ${compBadge} font-bold shadow-sm">${compName}</span>
                         ${recHtml}
                         <span class="text-xs px-2 py-0.5 rounded ${statusColor} font-bold ml-1">${r.status}</span>
