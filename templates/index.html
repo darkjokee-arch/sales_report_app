@@ -641,6 +641,7 @@
             btn.addEventListener('click', (e) => {
                 currentYearFilter = e.currentTarget.dataset.year;
                 updateYearTabUI(currentYearFilter);
+                updateTabBadges();
                 applyFiltersAndSearch();
             });
         });
@@ -935,8 +936,15 @@
         }
 
         function updateTabBadges() {
+            // 연도 필터 적용된 데이터 기준으로 회사·토스 카운트 계산
+            let scope = allReports;
+            if (currentYearFilter !== 'all') {
+                const yearNum = parseInt(currentYearFilter, 10);
+                scope = scope.filter(r => (r.target_year || 2026) === yearNum);
+            }
+
             // 타사 검토 카운트
-            const tossCount = allReports.filter(r => r.status && r.status.includes('타사검토요청')).length;
+            const tossCount = scope.filter(r => r.status && r.status.includes('타사검토요청')).length;
             const tossBadge = document.getElementById('badge-toss');
             if (tossBadge) {
                 tossBadge.textContent = tossCount;
@@ -947,7 +955,7 @@
             // 회사별 카운트
             const companies = ['세일산업개발', '세진씨엔씨', '더세움', '유니드건설'];
             companies.forEach(company => {
-                const count = allReports.filter(r => r.assigned_company === company).length;
+                const count = scope.filter(r => r.assigned_company === company).length;
                 const badge = document.getElementById(`badge-${company}`);
                 if (badge) {
                     badge.textContent = count;

@@ -451,6 +451,197 @@ class BulkReport(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
+# --- K-APT 장기수선충당금 동기화 (운영 PG 전용) ---
+import urllib.parse
+import urllib.request
+import threading
+import difflib
+
+KAPT_API_KEY = "dcc614fd303886a1fcaf68d8ef0eb5720a321b324e84973ee83561c34f000bf3"
+KAPT_URL_BASIS = "http://apis.data.go.kr/1613000/AptListService3/getHsmpNmSearchV2"
+KAPT_URL_RESERVE = "http://apis.data.go.kr/1613000/AptRepairsCostServiceV2/getHsmpReserveBalanceInfoV2"
+
+KAPT_BJDCE = {
+    "종로구":"11110","중구":"11140","용산구":"11170","성동구":"11200","광진구":"11215",
+    "동대문구":"11230","중랑구":"11260","성북구":"11290","강북구":"11305","도봉구":"11320",
+    "노원구":"11350","은평구":"11380","서대문구":"11410","마포구":"11440","양천구":"11470",
+    "강서구":"11500","구로구":"11530","금천구":"11545","영등포구":"11560","동작구":"11590",
+    "관악구":"11620","서초구":"11650","강남구":"11680","송파구":"11710","강동구":"11740",
+    "인천 중구":"28110","인천 동구":"28140","미추홀구":"28177","연수구":"28185","남동구":"28200",
+    "부평구":"28237","계양구":"28245","인천 서구":"28260","강화군":"28710","옹진군":"28720",
+    "수원시 장안구":"41111","수원시 권선구":"41113","수원시 팔달구":"41115","수원시 영통구":"41117",
+    "장안구":"41111","권선구":"41113","팔달구":"41115","영통구":"41117",
+    "성남시 수정구":"41131","성남시 중원구":"41133","성남시 분당구":"41135",
+    "수정구":"41131","중원구":"41133","분당구":"41135","의정부시":"41150",
+    "안양시 만안구":"41171","안양시 동안구":"41173","만안구":"41171","동안구":"41173",
+    "부천시":"41190","광명시":"41210","평택시":"41220","동두천시":"41250",
+    "안산시 상록구":"41271","안산시 단원구":"41273","상록구":"41271","단원구":"41273",
+    "고양시 덕양구":"41281","고양시 일산동구":"41285","고양시 일산서구":"41287",
+    "덕양구":"41281","일산동구":"41285","일산서구":"41287",
+    "과천시":"41290","구리시":"41310","남양주시":"41360","오산시":"41370","시흥시":"41390",
+    "군포시":"41410","의왕시":"41430","하남시":"41450",
+    "용인시 처인구":"41461","용인시 기흥구":"41463","용인시 수지구":"41465",
+    "처인구":"41461","기흥구":"41463","수지구":"41465",
+    "파주시":"41480","이천시":"41500","안성시":"41550","김포시":"41570",
+    "화성시":"41590","광주시":"41610","양주시":"41630","포천시":"41650","여주시":"41670",
+    "연천군":"41800","가평군":"41820","양평군":"41830"
+}
+
+_sync_state = {"running": False, "total": 0, "done": 0, "updated": 0, "log": []}
+_sync_lock = threading.Lock()
+
+
+def _kapt_http_get(url: str, params: dict, timeout: int = 10) -> dict:
+    qs = urllib.parse.urlencode(params, safe=":/+=")
+    full = url + "?" + qs
+    req = urllib.request.Request(full, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _resolve_kapt_code(address: str, complex_name: str) -> str:
+    bjdce = "11650"
+    for k, v in KAPT_BJDCE.items():
+        if k in address:
+            bjdce = v
+            break
+    try:
+        data = _kapt_http_get(KAPT_URL_BASIS, {
+            "serviceKey": KAPT_API_KEY, "bjdceCd": bjdce,
+            "numOfRows": "1000", "pageNo": "1", "_type": "json"
+        }, timeout=10)
+        body = data.get("response", {}).get("body", {})
+        items = body.get("items", [])
+        if isinstance(items, dict): items = items.get("item", [])
+        if isinstance(items, dict): items = [items]
+        if not items: return ""
+        clean = complex_name.replace("아파트", "").replace(" ", "")
+        best, best_ratio = "", 0.0
+        for it in items:
+            api_name = it.get("kaptName", "").replace("아파트", "").replace(" ", "")
+            if clean in api_name or api_name in clean:
+                return it.get("kaptCode", "")
+            ratio = difflib.SequenceMatcher(None, clean, api_name).ratio()
+            if ratio > best_ratio:
+                best_ratio, best = ratio, it.get("kaptCode", "")
+        return best if best_ratio > 0.55 else ""
+    except Exception as e:
+        print(f"[KAPT basis err] {complex_name}: {e}")
+        return ""
+
+
+def _fetch_reserve_balance(kapt_code: str) -> str:
+    if not kapt_code: return ""
+    network_err = False
+    for i in range(1, 7):
+        m = datetime.datetime.now().month - i
+        y = datetime.datetime.now().year
+        if m <= 0:
+            m += 12; y -= 1
+        date = f"{y:04d}{m:02d}"
+        try:
+            data = _kapt_http_get(KAPT_URL_RESERVE, {
+                "serviceKey": KAPT_API_KEY, "kaptCode": kapt_code,
+                "searchDate": date, "_type": "json"
+            }, timeout=8)
+            body = data.get("response", {}).get("body", {})
+            item = body.get("item") or body.get("items", {}).get("item", [])
+            if isinstance(item, dict): item = [item]
+            if item:
+                amt = item[0].get("sTot") or item[0].get("lsbbmAmt")
+                if amt and str(amt).strip() not in ("0", "None", ""):
+                    return f"{int(str(amt).replace(',', '').strip()):,}원"
+        except Exception as e:
+            print(f"[KAPT reserve err] {kapt_code} {date}: {e}")
+            network_err = True
+    return "조회 실패" if network_err else "자료미제출"
+
+
+def _sync_reserve_worker(year: int, pin: str):
+    if pin != ADMIN_PIN:
+        with _sync_lock:
+            _sync_state["log"].append("ADMIN_PIN 불일치, 종료")
+            _sync_state["running"] = False
+        return
+    try:
+        conn = get_raw_connection()
+        cursor = conn.cursor()
+        cursor.execute(ph(
+            "SELECT id, complex_name, address, kapt_code, long_term_reserve "
+            "FROM reports WHERE target_year = ? "
+            "AND (long_term_reserve IS NULL OR long_term_reserve = '' "
+            "OR long_term_reserve = '조회 전' OR long_term_reserve = '조회 실패')"
+        ), (year,))
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+
+        with _sync_lock:
+            _sync_state["total"] = len(rows)
+            _sync_state["done"] = 0
+            _sync_state["updated"] = 0
+            _sync_state["log"].append(f"[{year}년] 동기화 대상 {len(rows)}건")
+
+        for row in rows:
+            r_id = row["id"]
+            name = row["complex_name"]
+            addr = row["address"]
+            k_code = row.get("kapt_code") or ""
+
+            if not k_code:
+                k_code = _resolve_kapt_code(addr, name)
+                if k_code:
+                    wc = get_raw_connection()
+                    wcur = wc.cursor()
+                    wcur.execute(ph("UPDATE reports SET kapt_code = ? WHERE id = ?"), (k_code, r_id))
+                    wc.commit(); wc.close()
+
+            balance = _fetch_reserve_balance(k_code)
+            if balance:
+                wc = get_raw_connection()
+                wcur = wc.cursor()
+                wcur.execute(ph("UPDATE reports SET long_term_reserve = ? WHERE id = ?"), (balance, r_id))
+                wc.commit(); wc.close()
+                with _sync_lock:
+                    _sync_state["updated"] += 1
+
+            with _sync_lock:
+                _sync_state["done"] += 1
+
+        with _sync_lock:
+            _sync_state["log"].append(f"[{year}년] 완료: {_sync_state['updated']}/{_sync_state['total']} 업데이트")
+    except Exception as e:
+        with _sync_lock:
+            _sync_state["log"].append(f"치명 오류: {e}")
+    finally:
+        with _sync_lock:
+            _sync_state["running"] = False
+
+
+class SyncReserveRequest(BaseModel):
+    pin: str
+    target_year: int = 2027
+
+
+@app.post("/api/admin/sync-reserve")
+def sync_reserve_admin(req: SyncReserveRequest):
+    if req.pin != ADMIN_PIN:
+        raise HTTPException(status_code=401, detail="Invalid admin PIN")
+    with _sync_lock:
+        if _sync_state["running"]:
+            return {"success": False, "message": "이미 동기화 진행 중", "state": dict(_sync_state)}
+        _sync_state["running"] = True
+        _sync_state["log"] = []
+    t = threading.Thread(target=_sync_reserve_worker, args=(req.target_year, req.pin), daemon=True)
+    t.start()
+    return {"success": True, "message": f"{req.target_year}년 K-APT 동기화 시작", "target_year": req.target_year}
+
+
+@app.get("/api/admin/sync-reserve/status")
+def sync_reserve_status():
+    with _sync_lock:
+        return dict(_sync_state)
+
+
 @app.post("/api/bulk-import")
 def bulk_import(reports: List[BulkReport], db=Depends(get_db)):
     cursor = db.cursor()
