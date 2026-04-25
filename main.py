@@ -499,6 +499,20 @@ def _kapt_http_get(url: str, params: dict, timeout: int = 10) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _extract_dong(address: str) -> str:
+    """주소에서 '~동' 또는 '~리' 패턴 추출."""
+    import re
+    # 도로명에 동 포함된 경우 제외 ('새말로' 등). 법정동 패턴 우선
+    m = re.search(r'[가-힣]+(?:[1-9]?\d?)동(?=[\s\d])', address + ' ')
+    if m: return m.group(0)
+    m2 = re.search(r'[가-힣]+(?:[1-9]?\d?)리(?=[\s\d])', address + ' ')
+    return m2.group(0) if m2 else ''
+
+
+def _normalize_name(s: str) -> str:
+    return s.replace("아파트", "").replace("(주)", "").replace(" ", "").lower()
+
+
 def _resolve_kapt_code(address: str, complex_name: str) -> str:
     bjdce = "11650"
     for k, v in KAPT_BJDCE.items():
@@ -515,16 +529,49 @@ def _resolve_kapt_code(address: str, complex_name: str) -> str:
         if isinstance(items, dict): items = items.get("item", [])
         if isinstance(items, dict): items = [items]
         if not items: return ""
-        clean = complex_name.replace("아파트", "").replace(" ", "")
-        best, best_ratio = "", 0.0
+
+        clean = _normalize_name(complex_name)
+        target_dong = _extract_dong(address)
+
+        # 동 일치 단지를 우선 후보로 분리
+        same_dong = []
+        others = []
         for it in items:
-            api_name = it.get("kaptName", "").replace("아파트", "").replace(" ", "")
-            if clean in api_name or api_name in clean:
-                return it.get("kaptCode", "")
-            ratio = difflib.SequenceMatcher(None, clean, api_name).ratio()
-            if ratio > best_ratio:
-                best_ratio, best = ratio, it.get("kaptCode", "")
-        return best if best_ratio > 0.55 else ""
+            api_dong = (it.get("as3") or "").strip()
+            if target_dong and api_dong and (api_dong in target_dong or target_dong.startswith(api_dong)):
+                same_dong.append(it)
+            else:
+                others.append(it)
+
+        def search(pool, threshold):
+            best, best_ratio = "", 0.0
+            for it in pool:
+                api_name = _normalize_name(it.get("kaptName", ""))
+                if not api_name: continue
+                # 1) 완전 포함
+                if clean in api_name or api_name in clean:
+                    return it.get("kaptCode", ""), 1.0
+                # 2) 키워드 부분 일치 가산 (3글자 이상 공통 substring)
+                bonus = 0.0
+                for size in (5, 4, 3):
+                    for i in range(len(clean) - size + 1):
+                        if clean[i:i+size] in api_name:
+                            bonus = max(bonus, 0.15 if size >= 4 else 0.08)
+                            break
+                    if bonus: break
+                ratio = difflib.SequenceMatcher(None, clean, api_name).ratio() + bonus
+                if ratio > best_ratio:
+                    best_ratio, best = ratio, it.get("kaptCode", "")
+            return (best, best_ratio) if best_ratio >= threshold else ("", 0.0)
+
+        # 동 일치 풀에서 먼저 0.45 임계값으로 검색
+        if same_dong:
+            code, _ = search(same_dong, 0.45)
+            if code: return code
+
+        # 전체 풀에서 0.55 임계값
+        code, _ = search(others if same_dong else items, 0.55)
+        return code
     except Exception as e:
         print(f"[KAPT basis err] {complex_name}: {e}")
         return ""
